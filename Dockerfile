@@ -2,28 +2,36 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Sistem kutubxonalarni yangilaymiz va ffmpeg o‘rnatamiz
+# Install system dependencies including ffmpeg and clean up
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Python optimallashtirishlar
+# Python optimizations
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
 
-# Pip yangilanishi
-RUN pip install --upgrade pip
-
-# Kerakli Python kutubxonalar
+# Upgrade pip and install dependencies
+RUN pip install --upgrade pip setuptools wheel
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Loyihani nusxalash
+# Copy project files
 COPY . .
 
-# Django uchun port
-EXPOSE 8000
+# Create necessary directories
+RUN mkdir -p /app/downloads /app/outputs
 
-# Botni ishga tushirish
-CMD ["sh", "-c", "python3 manage.py bot"]
+# Set up environment variables with defaults
+ENV BOT_TOKEN="your_bot_token_here"
+ENV DEBUG="False"
+ENV RAILWAY_ENVIRONMENT="True"
+
+# Health check (optional but recommended)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=2)"
+
+# Run the bot
+CMD ["python", "-m", "bot"]
