@@ -236,7 +236,7 @@ async def download_selected_format(query: CallbackQuery):
             if not file_url:
                 await query.message.answer("Faylni yuklab bo‘lmadi.")
                 return
-
+            await downloading_msg.delete()
             if choice_type == "audio":
                 await query.message.answer_audio(audio=file_url, title=info_res.json().get("title"))
             else:
@@ -252,9 +252,9 @@ async def download_selected_format(query: CallbackQuery):
         with open(filename, 'wb') as f:
             f.write(response.content)
 
-        await downloading_msg.delete()
         file = FSInputFile(filename)
         title = info.get("caption", "Video")
+        await downloading_msg.delete()
         if choice_type == "audio":
             await query.message.answer_audio(audio=file,caption=title)
         else:
