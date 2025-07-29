@@ -61,8 +61,7 @@ async def handle_sub_calback(calback:CallbackQuery,state:FSMContext)->None:
     
 @dp.message(F.content_type.in_([ContentType.VIDEO, ContentType.DOCUMENT]))
 async def video_document_handler(message: Message, state: FSMContext, ):
-    data = await state.get_data()
-    tg_id = data.get('tg_id')
+    tg_id = message.from_user.id
 
     if not await check_user_subscription(tg_id):
         await message.answer(
@@ -108,7 +107,15 @@ video_info_cache = {}
 @dp.message(F.text.startswith(("http",)))
 async def process_link(message: Message, state: FSMContext):
     chat_id = message.chat.id
+    tg_id = message.from_user.id
     url = message.text
+
+    if not await check_user_subscription(tg_id):
+        await message.answer(
+            text="🚫 Siz hali kanalga a’zo emassiz.",
+            reply_markup=join_channels()
+        )
+        return
     loading_msg = await message.answer("🔍 Havola tekshirilmoqda...")
 
     try:
@@ -185,12 +192,22 @@ async def process_link(message: Message, state: FSMContext):
 
 def extract_video_id(url):
     parsed = urlparse(url)
+
+    # youtu.be shortlink
     if "youtu.be" in url:
         return parsed.path.lstrip("/")
-    elif "youtube.com" in url:
-        return parse_qs(parsed.query).get("v", [None])[0]
-    return None
 
+    # youtube.com/watch?v=...
+    if "youtube.com" in url:
+        query = parse_qs(parsed.query).get("v")
+        if query:
+            return query[0]
+
+        # support youtube shorts
+        if parsed.path.startswith("/shorts/"):
+            return parsed.path.split("/shorts/")[-1].split("?")[0]
+
+    return None
 @dp.callback_query(F.data.startswith(("video|", "audio|")))
 async def download_selected_format(query: CallbackQuery):
     user_id = query.from_user.id
