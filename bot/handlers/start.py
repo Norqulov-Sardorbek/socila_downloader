@@ -1,4 +1,5 @@
 import os
+from os import getenv
 from aiogram import F
 from aiogram.filters import StateFilter
 from aiogram.filters.command import Command
@@ -7,7 +8,7 @@ from aiogram.types import Message, CallbackQuery,ReplyKeyboardRemove,ContentType
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from yt_dlp import YoutubeDL
+import requests
 from dispatcher import dp
 from bot.buttons.inline import *
 from bot.buttons.reply import *
@@ -15,6 +16,7 @@ from bot.state.main import *
 from bot.utils import *
 from aiogram.types import FSInputFile
 from glob import glob
+from urllib.parse import urlparse, parse_qs
 
 @dp.message(Command("about"), StateFilter(None))
 async def about(message: Message,state: FSMContext) -> None:
@@ -102,88 +104,92 @@ async def video_document_handler(message: Message, state: FSMContext, ):
     
 
 
-
 video_info_cache = {}
-@dp.message(F.text.startswith(("https://youtu", "https://www.youtube", "https://www.instagram.com")))
+@dp.message(F.text.startswith(("http",)))
 async def process_link(message: Message, state: FSMContext):
     chat_id = message.chat.id
     url = message.text
-
-    msg = await message.answer("🔍 Formatlar aniqlanmoqda...")
-
-    ydl_opts = {
-        'quiet': True,
-        'noplaylist': True,
-        'cookiesfrombrowser': ('chrome',),  # ← asosiy qo‘shimcha
-    }
+    loading_msg = await message.answer("🔍 Havola tekshirilmoqda...")
 
     try:
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        # YouTube uchun alohida /download endpoint
+        if "youtube.com" in url or "youtu.be" in url:
 
-        formats = info.get('formats', [])
-        title = info.get('title') or "Noma'lum video"
-        video_info_cache[chat_id] = info
+            video_info_cache[chat_id] = {
+    "hosting": "youtube",
+    "yutu_url": url
+}
+            buttons = [
+            [InlineKeyboardButton(text="📥 Yuklab olish (video)", callback_data="video|default")],
+            [InlineKeyboardButton(text="🎧 Yuklab olish (audio)", callback_data="audio|default")]
+        ]
+            markup = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-        buttons = []
-        added_res = set()
+            await loading_msg.delete()
+            await message.answer(
+            f"🎬Qanday formatda yuklab olmoqchisiz?",
+            reply_markup=markup,
+            parse_mode="Markdown"
+        )
+            return
 
-        for f in formats:
-            if not f.get("format_id"):
-                continue
 
-            # Faqat video (audio emas)
-            if f.get("vcodec") == "none":
-                continue
+        else:
+            # Insta/  gram, TikTok va boshqa platformalar uchun /get-info endpoint
+            info_res = requests.get("https://fastsaverapi.com/get-info", params={
+                "url": url,
+                "token": getenv("FASTSAVER_API_TOKEN")
+        })
 
-            resolution = f.get('format_note') or f.get('height')
-            ext = f.get('ext')
-            format_id = f.get('format_id')
+            print("Media info javobi:", info_res.json())
 
-            if resolution and ext == 'mp4':
-                # `height` ko'rinishida olishga harakat qilamiz
+            if info_res.status_code != 200:
                 try:
-                    # Masalan: 720, 1080 yoki '720p' bo'lishi mumkin
-                    if isinstance(resolution, str) and 'p' in resolution.lower():
-                        height = int(resolution.lower().replace('p', ''))
-                    else:
-                        height = int(resolution)
-                except (ValueError, TypeError):
-                    continue
+                    await loading_msg.edit_text("❌ Formatni aniqlashda xatolik yuz berdi.")
+                except Exception:
+                    await message.answer("❌ Formatni aniqlashda xatolik yuz berdi.")
+                return
 
-                # ❗️Faqat 480 va undan yuqori
-                if height < 480:
-                    continue
+            info = info_res.json()
+            print("Media info:", info)
 
-                str_res = f"{height}p"
-                if str_res not in added_res:
-                    added_res.add(str_res)
-                    buttons.append([
-                        InlineKeyboardButton(
-                            text=str_res,
-                            callback_data=f"video|{format_id}"
-                        )
-                    ])
-        # Audio variantni ham qo‘shamiz
-        buttons.append([
-            InlineKeyboardButton(text="🎧 MP3 (audio)", callback_data="audio|bestaudio")
-        ])
+            if info.get("error") :
+                try:
+                    await loading_msg.edit_text("❌ Video topilmadi yoki format qo‘llab-quvvatlanmaydi.")
+                except Exception:
+                    await message.answer("❌ Video topilmadi yoki format qo‘llab-quvvatlanmaydi.")
+                return
 
-        # Klaviaturani yaratish
+            video_info_cache[chat_id] = info
+
+            title = info.get("caption", "Video")
+        buttons = [
+            [InlineKeyboardButton(text="📥 Yuklab olish (video)", callback_data="video|default")],
+            [InlineKeyboardButton(text="🎧 Yuklab olish (audio)", callback_data="audio|default")]
+        ]
         markup = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-        await msg.delete()
+        await loading_msg.delete()
         await message.answer(
-            f"🎬 *{title}*\nQaysi formatda yuklab olishni tanlang:",
+            f"🎬 *{title}*\nQanday formatda yuklab olmoqchisiz?",
             reply_markup=markup,
             parse_mode="Markdown"
         )
 
     except Exception as e:
-        await message.answer("❌ Formatlarni aniqlashda xatolik yuz berdi.")
-        print("Format aniqlash xatosi:", e)
+        try:
+            await loading_msg.edit_text("❌ Formatni aniqlashda xatolik yuz berdi.")
+        except Exception:
+            await message.answer("❌ Formatni aniqlashda xatolik yuz berdi.")
+        print("process_link xatosi:", e)
 
-video_info_cache = {}  # global cache agar sizda allaqachon bo'lmasa
+def extract_video_id(url):
+    parsed = urlparse(url)
+    if "youtu.be" in url:
+        return parsed.path.lstrip("/")
+    elif "youtube.com" in url:
+        return parse_qs(parsed.query).get("v", [None])[0]
+    return None
 
 @dp.callback_query(F.data.startswith(("video|", "audio|")))
 async def download_selected_format(query: CallbackQuery):
@@ -191,73 +197,74 @@ async def download_selected_format(query: CallbackQuery):
     await query.answer()
 
     if user_id not in video_info_cache:
-        await query.message.answer("❌ Video ma'lumotlari topilmadi. Qayta YouTube havolasini yuboring.")
+        await query.message.answer("❌ Video ma'lumotlari topilmadi. Qayta havola yuboring.")
         return
 
-    filename = None  # ← kerak bo'ladi except blokida ishlatish uchun
+    filename = None
 
     try:
-        choice_type, format_id = query.data.split('|')
+        choice_type, _ = query.data.split('|')
         await query.message.delete()
         downloading_msg = await query.message.answer("⏳ Yuklab olinmoqda...")
 
         info = video_info_cache[user_id]
-        url = info.get("webpage_url")
-        output_template = 'downloads/%(title).50s.%(ext)s'
+        if info.get("hosting") == "youtube":
+            url=info.get("yutu_url")
+            video_id = extract_video_id(url)
+            ext = "mp3" if choice_type == "audio" else "720p"
+            info_res = requests.get("https://fastsaverapi.com/get-info", params={
+                "url": url,
+                "token": getenv("FASTSAVER_API_TOKEN")
+        })
+            res2 = requests.get("https://fastsaverapi.com/download", params={
+    "video_id": video_id,
+    "format": ext,  # yoki "video" / "mp3"
+    "bot_username": "DumaloqYuklaBot",  # @ belgisiz
+    "token": getenv('FASTSAVER_API_TOKEN')
+            })
+            download_info = res2.json()
+            print("Download response:", download_info)
+            if download_info.get("error"):
+                await query.message.answer("❌ Yuklab olishda xatolik yuz berdi.")
+                return
+            print("Download response:", res2.json())
+            # Download URL oli    
 
-        if choice_type == "audio":
-            ydl_opts = {
-                'format': 'bestaudio',
-                'outtmpl': output_template,
-                'quiet': True,
-                'restrictfilenames': True,
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }],
-            }
-        else:
-            ydl_opts = {
-        'format': f'{format_id}+bestaudio/best',  # <- muhim o‘zgartirish
-        'outtmpl': output_template,
-        'quiet': True,
-        'restrictfilenames': True,
-        'merge_output_format': 'mp4',  # <- birlashtirilgan fayl turi
-    }
 
-        if choice_type == "audio":
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }]
+            file_url = download_info.get("file_id")
 
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+            if not file_url:
+                await query.message.answer("Faylni yuklab bo‘lmadi.")
+                return
 
-        downloaded_files = sorted(glob("downloads/*.mp*"), key=os.path.getmtime, reverse=True)
-        filename = downloaded_files[0] if downloaded_files else None
+            if choice_type == "audio":
+                await query.message.answer_audio(audio=file_url, title=info_res.json().get("title"))
+            else:
+                await query.message.answer_video(video=file_url, caption=info_res.json().get("title"))
 
-        if not filename or not os.path.exists(filename):
-            await downloading_msg.delete()
-            await query.message.answer("❌ Faylni topib bo‘lmadi.")
             return
+        title = info.get("caption", "video")
+        file_url = info.get("download_url")
+        ext = "mp3" if choice_type == "audio" else "mp4"
+        filename = f"downloads/{title[:50].replace(' ', '_')}.{ext}"
+
+        response = requests.get(file_url)
+        with open(filename, 'wb') as f:
+            f.write(response.content)
 
         await downloading_msg.delete()
         file = FSInputFile(filename)
-        print("Fayl hajmi:", os.path.getsize(filename) / (1024 * 1024), "MB")
-
+        title = info.get("caption", "Video")
         if choice_type == "audio":
-            await query.message.answer_audio(audio=file)
+            await query.message.answer_audio(audio=file,caption=title)
         else:
-            await query.message.answer_video(video=file)
+            await query.message.answer_video(video=file,caption=title)
 
     except Exception as e:
         await query.message.answer("❌ Yuklab olishda xatolik yuz berdi.")
+        print("Yuklash xatosi:", e)
 
     finally:
-        # Faylni tozalash
         if filename and os.path.exists(filename):
             try:
                 os.remove(filename)
