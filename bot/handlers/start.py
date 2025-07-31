@@ -29,13 +29,13 @@ async def start(message: Message, state: FSMContext) -> None:
     data['tg_id']=tg_id
     await state.update_data(data)
     user, created = User.objects.get_or_create(tg_id=tg_id)
-    if not await check_user_subscription(tg_id):
-        print('kirdi')
-        await message.answer(
-            text=f"Salom {message.from_user.first_name}!\n\nBotdan foydalanish uchun quyidagi kanalga a'zo bo'ling:",
-            reply_markup=join_channels()
-    )
-        return
+    #if not await check_user_subscription(tg_id):
+        
+     #   await message.answer(
+      #      text=f"Salom {message.from_user.first_name}!\n\nBotdan foydalanish uchun quyidagi kanalga a'zo bo'ling:",
+       #     reply_markup=join_channels()
+   # )
+    #    return
     await message.answer(text="✅ Tabriklayman! Endi video yuboring yoki YouTube/Instagram link jo‘nating.")
     return
 
@@ -63,12 +63,12 @@ async def handle_sub_calback(calback:CallbackQuery,state:FSMContext)->None:
 async def video_document_handler(message: Message, state: FSMContext, ):
     tg_id = message.from_user.id
 
-    if not await check_user_subscription(tg_id):
-        await message.answer(
-            text="🚫 Siz hali kanalga a’zo emassiz.",
-            reply_markup=join_channels()
-        )
-        return
+   # if not await check_user_subscription(tg_id):
+    #    await message.answer(
+     #       text="🚫 Siz hali kanalga a’zo emassiz.",
+      #      reply_markup=join_channels()
+      #  )
+       # return
 
     file = message.video or message.document
     if not file:
@@ -110,12 +110,12 @@ async def process_link(message: Message, state: FSMContext):
     tg_id = message.from_user.id
     url = message.text
 
-    if not await check_user_subscription(tg_id):
-        await message.answer(
-            text="🚫 Siz hali kanalga a’zo emassiz.",
-            reply_markup=join_channels()
-        )
-        return
+   # if not await check_user_subscription(tg_id):
+   #     await message.answer(
+   #         text="🚫 Siz hali kanalga a’zo emassiz.",
+   #         reply_markup=join_channels()
+   #     )
+   #     return
     loading_msg = await message.answer("🔍 Havola tekshirilmoqda...")
 
     try:
